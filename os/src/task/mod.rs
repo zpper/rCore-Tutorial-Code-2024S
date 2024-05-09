@@ -65,7 +65,7 @@ lazy_static! {
                     tasks,
                     current_task: 0,
                 })
-            },
+                },
         }
     };
 }
@@ -82,6 +82,7 @@ impl TaskManager {
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
+        self.modify_create_time(0);
         // before this, we should drop local variables that must be dropped manually
         unsafe {
             __switch(&mut _unused as *mut _, next_task_cx_ptr);
@@ -137,6 +138,11 @@ impl TaskManager {
     /// or there is no `Ready` task and we can exit with all applications completed
     fn run_next_task(&self) {
         if let Some(next) = self.find_next_task() {
+            unsafe {
+                if CREATE_TIME[next] == 0 {
+                    self.modify_create_time(next);
+                }
+            }
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
@@ -151,6 +157,32 @@ impl TaskManager {
             // go back to user mode
         } else {
             panic!("All applications completed!");
+        }
+    }
+
+
+    fn modify_create_time(&self, i: usize) {
+        unsafe { CREATE_TIME[i] = get_time_ms(); }
+    }
+
+    ///! get current task id
+    pub fn get_current_task_id(&self) -> usize {
+        let inner = TASK_MANAGER.inner.exclusive_access();
+        inner.current_task
+    }
+
+    ///! syscall trigger summary
+    pub fn syscall_trigger(&self, syscall_type: usize) {
+        unsafe { SYSCALL_TIMES[self.get_current_task_id()][syscall_type] += 1 }
+    }
+
+    /// get create time
+    pub fn get_task_crate_time(&self) -> (TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
+        let inner = TASK_MANAGER.inner.exclusive_access();
+        if let Some(tcb) = inner.tasks.get(inner.current_task) {
+            (tcb.task_status, unsafe { SYSCALL_TIMES[inner.current_task] }, unsafe { CREATE_TIME[inner.current_task] })
+        } else {
+            (TaskStatus::Exited, [0; MAX_SYSCALL_NUM], 0)
         }
     }
 }
@@ -201,4 +233,17 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
+use crate::timer::{get_time_ms};
+
+
+static mut CREATE_TIME: [usize; MAX_APP_NUM] = [0; MAX_APP_NUM];
+static mut SYSCALL_TIMES: [[u32; MAX_SYSCALL_NUM]; MAX_APP_NUM] = [[0; MAX_SYSCALL_NUM]; MAX_APP_NUM];
+
+/// get syscall summary
+pub fn syscall_trigger(syscall_type: usize) {
+    TASK_MANAGER.syscall_trigger(syscall_type);
 }

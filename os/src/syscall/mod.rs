@@ -32,6 +32,9 @@ use fs::*;
 use process::*;
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
+    if syscall_id <= MAX_SYSCALL_NUM {
+        syscall_trigger(syscall_id);
+    }
     match syscall_id {
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
         SYSCALL_EXIT => sys_exit(args[0] as i32),
@@ -44,3 +47,8 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
 }
+
+
+
+use crate::config::MAX_SYSCALL_NUM;
+use crate::task::{syscall_trigger};

@@ -49,9 +49,27 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    -1
+
+/// YOUR JOB: Finish sys_task_info to pass testcases
+use crate::task::TASK_MANAGER;
+use crate::timer::get_time_ms;
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
+    trace!("kernel: sys_task_info");
+    // summary syscall
+    let (status, syscall_times, create_time) = TASK_MANAGER.get_task_crate_time();
+    unsafe {
+        (*ti).status = status;
+        // Correcting the logic to set the time as the duration since creation.
+        let elapsed_time = get_time_ms() - create_time;
+        (*ti).time = elapsed_time; // Assuming 'time' is a field that can hold a duration or timestamp.
+
+        // Assuming `syscall_times` is a field that can be copied or assigned directly from `curr_task_info`.
+        (*ti).syscall_times = syscall_times;
+    }
+    // *(&ti).status = *status;
+    // (&ti).time.get_time_ms() - create_time;
+    // (&ti).syscall_times = curr_task_info;
+    0
 }
 
 // YOUR JOB: Implement mmap.
