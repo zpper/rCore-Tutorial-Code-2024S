@@ -1,7 +1,6 @@
 //! Constants in the kernel
 
 #[allow(unused)]
-
 /// user app's stack size
 pub const USER_STACK_SIZE: usize = 4096;
 /// kernel stack size
@@ -21,3 +20,5 @@ pub const MAX_SYSCALL_NUM: usize = 500;
 pub const CLOCK_FREQ: usize = 12500000;
 /// the physical memory end
 pub const MEMORY_END: usize = 0x88000000;
+
+pub const MAX_PROCESS_NUM: usize = 1024;

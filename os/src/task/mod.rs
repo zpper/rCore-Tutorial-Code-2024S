@@ -14,9 +14,10 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_PROCESS_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -37,6 +38,8 @@ pub struct TaskManager {
     num_app: usize,
     /// use inner value to get mutable access
     inner: UPSafeCell<TaskManagerInner>,
+    task_info_inner: [UPSafeCell<TaskInfoInner>; MAX_APP_NUM],
+    create_time: [usize; MAX_APP_NUM],
 }
 
 /// Inner of Task Manager
@@ -45,6 +48,10 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
+}
+
+pub struct TaskInfoInner {
+    syscall_times: [usize; MAX_SYSCALL_NUM],
 }
 
 lazy_static! {
@@ -67,10 +74,17 @@ lazy_static! {
                     current_task: 0,
                 })
             },
+            task_info_inner: unsafe {
+                [UPSafeCell::new (
+                     TaskInfoInner{
+                        syscall_times: [0; MAX_SYSCALL_NUM],
+                        }
+                );MAX_APP_NUM]
+            },
+            create_time: [0; MAX_APP_NUM],
         }
     };
 }
-
 impl TaskManager {
     /// Run the first task in task list.
     ///
@@ -83,6 +97,8 @@ impl TaskManager {
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
+        // set create time
+        TASK_MANAGER.create_time[0] = get_time_ms();
         // before this, we should drop local variables that must be dropped manually
         unsafe {
             __switch(&mut _unused as *mut TaskContext, next_task_cx_ptr);
@@ -119,6 +135,9 @@ impl TaskManager {
     /// or there is no `Ready` task and we can exit with all applications completed
     fn run_next_task(&self) {
         if let Some(next) = self.find_next_task() {
+            if TASK_MANAGER.create_time[next] == 0 {
+                TASK_MANAGER.create_time[next] = get_time_ms();
+            }
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
@@ -134,6 +153,23 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    pub fn get_current_task_id(&self) -> usize {
+        let inner = TASK_MANAGER.inner.exclusive_access();
+        inner.current_task
+    }
+
+    pub fn syscall_trigger(&self, syscall_type: usize) {
+        let task_info_inner = self.task_info_inner[self.get_current_task_id()].exclusive_access();
+        task_info_inner.syscall_times[self.get_current_task_id()][syscall_type] += 1
+    }
+
+    pub fn get_task_crate_time(&self) -> (TaskStatus, [usize; MAX_SYSCALL_NUM], usize) {
+        let inner = TASK_MANAGER.inner.exclusive_access();
+        let task_info_inner = self.task_info_inner[inner.current_task].exclusive_access();
+        let current = inner.tasks[inner.current_task];
+        (current.task_status, task_info_inner.syscall_times, TASK_MANAGER.create_time[inner.current_task])
     }
 }
 
@@ -157,6 +193,11 @@ fn mark_current_suspended() {
 fn mark_current_exited() {
     TASK_MANAGER.mark_current_exited();
 }
+
+pub fn syscall_trigger(syscall_type: usize) {
+    TASK_MANAGER.syscall_trigger(syscall_type);
+}
+
 
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
