@@ -1,7 +1,6 @@
 //! Process management syscalls
-use lazy_static::lazy_static;
 use crate::{
-    config::{MAX_SYSCALL_NUM, MAX_PROCESS_NUM},
+    config::{MAX_SYSCALL_NUM},
     task::{exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, TASK_MANAGER},
     timer::get_time_us,
 };
@@ -54,11 +53,21 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
-    let (status, curr_task_info, create_time) = &TASK_MANAGER.get_task_crate_time();
-    (*(&_ti).status) = status;
-    (&_ti).time.get_time_ms() - create_time;
-    (&_ti).syscall_times = curr_task_info;
+    // summary syscall
+    let (status, syscall_times, create_time) = TASK_MANAGER.get_task_crate_time();
+    unsafe {
+        (*ti).status = status;
+        // Correcting the logic to set the time as the duration since creation.
+        let elapsed_time = get_time_ms() - create_time;
+        (*ti).time = elapsed_time; // Assuming 'time' is a field that can hold a duration or timestamp.
+
+        // Assuming `syscall_times` is a field that can be copied or assigned directly from `curr_task_info`.
+        (*ti).syscall_times = syscall_times;
+    }
+    // *(&ti).status = *status;
+    // (&ti).time.get_time_ms() - create_time;
+    // (&ti).syscall_times = curr_task_info;
     0
 }

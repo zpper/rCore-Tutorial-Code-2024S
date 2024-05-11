@@ -14,10 +14,10 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::{MAX_APP_NUM, MAX_PROCESS_NUM, MAX_SYSCALL_NUM};
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
-use crate::timer::get_time_ms;
+use crate::timer::{get_time_ms};
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -38,8 +38,7 @@ pub struct TaskManager {
     num_app: usize,
     /// use inner value to get mutable access
     inner: UPSafeCell<TaskManagerInner>,
-    task_info_inner: [UPSafeCell<TaskInfoInner>; MAX_APP_NUM],
-    create_time: [usize; MAX_APP_NUM],
+    task_info_inner: UPSafeCell<TaskInfoInner>,
 }
 
 /// Inner of Task Manager
@@ -49,10 +48,12 @@ pub struct TaskManagerInner {
     /// id of current `Running` task
     current_task: usize,
 }
-
+/// task info inner
 pub struct TaskInfoInner {
-    syscall_times: [usize; MAX_SYSCALL_NUM],
+    syscall_times: [[u32; MAX_SYSCALL_NUM]; MAX_APP_NUM],
 }
+
+static mut CREATE_TIME: [usize; MAX_APP_NUM] = [0; MAX_APP_NUM];
 
 lazy_static! {
     /// Global variable: TASK_MANAGER
@@ -75,13 +76,11 @@ lazy_static! {
                 })
             },
             task_info_inner: unsafe {
-                [UPSafeCell::new (
+                UPSafeCell::new (
                      TaskInfoInner{
-                        syscall_times: [0; MAX_SYSCALL_NUM],
-                        }
-                );MAX_APP_NUM]
+                        syscall_times: [[0; MAX_SYSCALL_NUM];MAX_APP_NUM],
+                        })
             },
-            create_time: [0; MAX_APP_NUM],
         }
     };
 }
@@ -98,12 +97,16 @@ impl TaskManager {
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // set create time
-        TASK_MANAGER.create_time[0] = get_time_ms();
+        self.modify_create_time(0);
         // before this, we should drop local variables that must be dropped manually
         unsafe {
             __switch(&mut _unused as *mut TaskContext, next_task_cx_ptr);
         }
         panic!("unreachable in run_first_task!");
+    }
+
+    fn modify_create_time(&self, i: usize) {
+        unsafe { CREATE_TIME[i] = get_time_ms(); }
     }
 
     /// Change the status of current `Running` task into `Ready`.
@@ -135,8 +138,10 @@ impl TaskManager {
     /// or there is no `Ready` task and we can exit with all applications completed
     fn run_next_task(&self) {
         if let Some(next) = self.find_next_task() {
-            if TASK_MANAGER.create_time[next] == 0 {
-                TASK_MANAGER.create_time[next] = get_time_ms();
+            unsafe {
+                if CREATE_TIME[next] == 0 {
+                    self.modify_create_time(next);
+                }
             }
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
@@ -155,21 +160,25 @@ impl TaskManager {
         }
     }
 
+
+    ///! get current task id
     pub fn get_current_task_id(&self) -> usize {
         let inner = TASK_MANAGER.inner.exclusive_access();
         inner.current_task
     }
 
+    ///! syscall trigger summary
     pub fn syscall_trigger(&self, syscall_type: usize) {
-        let task_info_inner = self.task_info_inner[self.get_current_task_id()].exclusive_access();
+        let mut task_info_inner = self.task_info_inner.exclusive_access();
         task_info_inner.syscall_times[self.get_current_task_id()][syscall_type] += 1
     }
 
-    pub fn get_task_crate_time(&self) -> (TaskStatus, [usize; MAX_SYSCALL_NUM], usize) {
+    /// get create time
+    pub fn get_task_crate_time(&self) -> (TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
         let inner = TASK_MANAGER.inner.exclusive_access();
-        let task_info_inner = self.task_info_inner[inner.current_task].exclusive_access();
+        let task_info_inner = self.task_info_inner.exclusive_access();
         let current = inner.tasks[inner.current_task];
-        (current.task_status, task_info_inner.syscall_times, TASK_MANAGER.create_time[inner.current_task])
+        (current.task_status, task_info_inner.syscall_times[inner.current_task], unsafe{CREATE_TIME[inner.current_task]})
     }
 }
 
@@ -193,7 +202,7 @@ fn mark_current_suspended() {
 fn mark_current_exited() {
     TASK_MANAGER.mark_current_exited();
 }
-
+/// get syscall summary
 pub fn syscall_trigger(syscall_type: usize) {
     TASK_MANAGER.syscall_trigger(syscall_type);
 }
