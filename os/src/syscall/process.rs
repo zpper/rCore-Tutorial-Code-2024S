@@ -61,14 +61,11 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
         (*ti).status = status;
         // Correcting the logic to set the time as the duration since creation.
         let elapsed_time = get_time_ms() - create_time;
-        (*ti).time = elapsed_time; // Assuming 'time' is a field that can hold a duration or timestamp.
-
+        // Assuming 'time' is a field that can hold a duration or timestamp.
+        (*ti).time = elapsed_time;
         // Assuming `syscall_times` is a field that can be copied or assigned directly from `curr_task_info`.
         (*ti).syscall_times = syscall_times;
     }
-    // *(&ti).status = *status;
-    // (&ti).time.get_time_ms() - create_time;
-    // (&ti).syscall_times = curr_task_info;
     0
 }
 
