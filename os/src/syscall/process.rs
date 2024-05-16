@@ -52,7 +52,7 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 }
 
 
-/// YOUR JOB: Finish sys_task_info to pass testcases
+/// get sys_task_info
 pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
     // summary syscall
