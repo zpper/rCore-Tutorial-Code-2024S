@@ -1,10 +1,12 @@
 //! Process management syscalls
+use core::ops::BitAnd;
 use crate::{
     config::MAX_SYSCALL_NUM,
     task::{
         change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,
     },
 };
+
 
 #[repr(C)]
 #[derive(Debug)]
@@ -43,7 +45,7 @@ pub fn sys_yield() -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    return get_time_us() as isize;
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
@@ -53,6 +55,7 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 use crate::task::TASK_MANAGER;
 use crate::timer::get_time_ms;
+
 pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
     // summary syscall
@@ -70,16 +73,39 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
 }
 
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+    let flag = port as u8;
+    let mut mem_permission = MapPermission::empty();
+    if flag & 0x2 != 0 {
+        mem_permission = mem_permission.bitand(MapPermission::R);
+    }
+    if flag & 0x4 != 0 {
+        mem_permission = mem_permission.bitand(MapPermission::W);
+    }
+    if flag & 0x8 != 0 {
+        mem_permission = mem_permission.bitand(MapPermission::X);
+    }
+    if flag & 0x10 != 0 {
+        mem_permission = mem_permission.bitand(MapPermission::U);
+    }
+    let mut kernel = KERNEL_SPACE.exclusive_access();
+
+    kernel.insert_framed_area(
+        start.into(),
+        len.into(),
+        mem_permission,
+    );
+    1
 }
 
 // YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
+pub fn sys_munmap(start: usize, len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    KERNEL_SPACE.exclusive_access().shrink_to(start.into(), len.into());
+    1
 }
+
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
     trace!("kernel: sys_sbrk");
@@ -89,3 +115,9 @@ pub fn sys_sbrk(size: i32) -> isize {
         -1
     }
 }
+
+
+use crate::timer::get_time_us;
+use crate::mm::{
+     MapPermission,  KERNEL_SPACE,
+};
